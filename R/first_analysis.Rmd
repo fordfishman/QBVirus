@@ -1,0 +1,64 @@
+---
+title: "project_stuff"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r results = 'hide'}
+rm(list=ls()) 
+library('ggplot2')
+library('vegan')
+
+setwd("~/GitHub/QBVirus/")
+
+sbs.t <- read.csv('data/viral_clusters_sites.csv', header=T, row.names = 1) # read data file
+```
+
+```{r}
+sbs <- t(sbs.t)
+
+
+dim(sbs) # dimensions (site x species)
+
+S <- specnumber(sbs)
+
+shan <- diversity(sbs, index = "shannon")
+
+inv <- diversity(sbs, index = "inv")
+
+
+ggplot(NULL, aes(x=S)) +
+  geom_histogram(bins=20) +
+  xlab('Cluster richness') +
+  ylab('Number of sites')+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.length = unit(5,"pt"),)
+
+ggplot(NULL, aes(x=shan)) +
+  geom_histogram(bins=20) +
+  xlab('Shannon Diversity') +
+  ylab('Number of sites')+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.length = unit(5,"pt"),)
+
+ggplot(NULL, aes(x=inv)) +
+  geom_histogram(bins=20) +
+  xlab("Inverse Simpson's") +
+  ylab('Number of sites')+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.length = unit(5,"pt"),)
+
+```
+
