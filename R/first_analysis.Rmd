@@ -14,7 +14,7 @@ library('vegan')
 
 setwd("~/GitHub/QBVirus/")
 
-sbs.t <- read.csv('data/viral_clusters_sites.csv', header=T, row.names = 1) # read data file
+sbs.t <- read.csv('data/vcs.csv', header=T, row.names = 1) # read data file
 ```
 
 ```{r}
