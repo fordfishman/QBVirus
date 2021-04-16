@@ -1,0 +1,105 @@
+---
+title: "Environmental Features"
+author: "Ford Fishman"
+date: "4/8/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load data
+
+```{r}
+require("corrplot")
+require("dplyr")
+require("reshape2")
+require("vegan")
+# data table
+df <- read.table("~/GitHub/QBVirus/data/env-geo-div-class.txt", sep = "\t", header = TRUE,row.names = 1)
+vcs.o <-read.csv("~/GitHub/QBVirus/data/vcs.csv", row.names = 1)
+
+# numerical features
+num_cols <- unlist(lapply(df, is.numeric))
+
+# numerical df
+df.num <- df[, num_cols]
+```
+
+# Correlations
+
+```{r}
+cor1 <- cor(df.num, use="complete.obs")
+corrplot(cor1, method = "ellipse")
+```
+```{r}
+vcs <- as.data.frame(t(vcs.o))
+#convert to relative abundance table
+vcs.rel <- vcs/rowSums(vcs)
+# top20 VCs
+top <- names(head(sort(colSums(vcs),decreasing = T),20))
+top <- as.vector(top)
+# recreate a table with the rest VCs classified into "Others"
+vcs.rel2 <- vcs.rel
+colnames(vcs.rel2)[!colnames(vcs.rel2)%in%top] <- "Others"
+others <- rowSums(cbind(vcs.rel2[colnames(vcs.rel2)=="Others"]))
+vcs.top <- cbind(vcs.rel2[colnames(vcs.rel2)!="Others"],others)
+vcs.top <- vcs.top[,order(colSums(vcs.top))] # ranking
+#load group data
+env.class.geo.div <- df
+vcs.top2 <- as.data.frame(cbind(vcs.top,env.class.geo.div$Layer,env.class.geo.div$Region))
+vcs.top2$sample <- rownames(vcs.top2)
+vcs.top20 <- melt(vcs.top2,ID="names")
+colnames(vcs.top20)[names(vcs.top20)=="variable"]<-"Taxa"
+vcs.top20$`env.class.geo.div$Layer` <- factor(vcs.top20$`env.class.geo.div$Layer`, levels = c("SUR","DCM","MIX","MES")) #set order
+# group by layer(zonation)
+vcs.top.layer <- aggregate(vcs.top2[,1:21], by = list(Layer = vcs.top2$`env.class.geo.div$Layer`),FUN = mean)
+vcs.top.layer$sample <- rownames(vcs.top.layer)
+vcs.group.layer <- melt(vcs.top.layer, ID="names")
+colnames(vcs.group.layer)[names(vcs.group.layer)=="variable"]<-"Taxa"
+vcs.group.layer$Layer <- factor(vcs.group.layer$Layer, levels = c("SUR","DCM","MIX","MES")) #set order
+# group by region
+vcs.top.region <- aggregate(vcs.top2[,1:21], by = list(Layer = vcs.top2$`env.class.geo.div$Region`),FUN = mean)
+vcs.top.region$sample <- rownames(vcs.top.region)
+vcs.group.region <- melt(vcs.top.region, ID="names")
+colnames(vcs.group.region)[names(vcs.group.region)=="variable"]<-"Taxa"
+```
+```{r}
+library(oce)
+data(coastlineWorld)
+par(mar=c(1.5, 1.5, 0.5, 0.5))
+mapPlot(coastlineWorld, col="lightgrey")
+mapPoints(df.num$Longitude_E, df.num$Latitude_N, pch=19, col="red")
+```
+
+```{r}
+vcs.db <- vegdist(vcs.rel, method="bray")
+
+vcs.pcoa <- cmdscale(vcs.db, eig=T, k=3)
+
+eig.sum <- sum(vcs.pcoa$eig)
+
+explainvar1 <- round( vcs.pcoa$eig[1]/eig.sum, 3)*100
+explainvar2 <- round( vcs.pcoa$eig[2]/eig.sum, 3)*100
+explainvar3 <- round( vcs.pcoa$eig[3]/eig.sum, 3)*100
+sum.eig <- explainvar1+explainvar2+explainvar3
+
+par(mar=c(5,5,1,2)+0.1)
+plot(vcs.pcoa$points[,1], vcs.pcoa$points[,2], 
+     xlab=paste0("PCoA 1 (", explainvar1,"%)"),
+     ylab=paste0("PCoA 2 (", explainvar2,"%)"),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=F)
+
+axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+abline(h=0, v=0, lty=3)
+
+points(vcs.pcoa$points[,1], vcs.pcoa$points[,2], pch=19, cex=2, bg="grey",col="grey")
+```
+```{r}
+vcs.ward <- hclust(vcs.db, method = "ward.D2")
+par(mar=c(1,5,2,2)+0.1)
+plot(vcs.ward,labels=FALSE,ylab="Squared Bray-Curtis")
+```
+
