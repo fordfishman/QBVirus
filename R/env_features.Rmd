@@ -30,7 +30,7 @@ df.num <- df[, num_cols]
 # Correlations
 
 ```{r}
-cor1 <- cor(df.num, use="complete.obs")
+cor1 <- cor(df.num[,1:9], use="complete.obs")
 corrplot(cor1, method = "ellipse")
 ```
 ```{r}
@@ -101,5 +101,27 @@ points(vcs.pcoa$points[,1], vcs.pcoa$points[,2], pch=19, cex=2, bg="grey",col="g
 vcs.ward <- hclust(vcs.db, method = "ward.D2")
 par(mar=c(1,5,2,2)+0.1)
 plot(vcs.ward,labels=FALSE,ylab="Squared Bray-Curtis")
+```
+
+# imputation
+```{r}
+require(mice)
+require(VIM)
+df.num1 <- subset(df.num, ! rownames(df.num) %in% c("MSP114"))
+df.sparse <- subset(df.num1, select=-c(Richness,Evenness,ShannonH))
+
+mice_plot <- aggr(df.sparse, col=c('grey','white'),
+                    numbers=TRUE, sortVars=TRUE,
+                    labels=names(df.sparse), cex.axis=.7,
+                    gap=3, ylab=c("Missing data","Pattern"))
+```
+```{r}
+imputed_Data <- mice(df.sparse, m=1, maxit = 100, method = 'pmm')
+summary(imputed_Data)
+```
+
+```{r}
+completeData <- complete(imputed_Data,1)
+write.csv(completeData, file = "~/GitHub/QBVirus/data/metadata-imputed.csv")
 ```
 
