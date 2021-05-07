@@ -1,0 +1,313 @@
+---
+title: "Global ocean viral communities"
+author: "Ford Fishman, Xiaotian Zhou"
+date: "5/6/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Initialize
+
+```{r}
+rm(list=ls()) 
+
+library('ggplot2')
+library('vegan')
+library("corrplot")
+library("dplyr")
+library("reshape2")
+library("patchwork")
+
+
+setwd("~/GitHub/QBVirus/")
+
+df <- read.table("data/env-geo-div-class.txt", sep = "\t", header = TRUE,row.names = 1)
+vcs.o <-read.csv("data/vcs.csv", row.names = 1)
+vcs <- as.data.frame(t(vcs.o))
+
+# remove outlier
+vcs <- subset(vcs, ! rownames(vcs) %in% c("MSP114"))
+vcs.0 <- as.data.frame(t(vcs))
+df <- subset(df, ! rownames(df) %in% c("MSP114"))
+
+# numerical features
+num_cols <- unlist(lapply(df, is.numeric))
+
+# numerical df
+df.num <- df[, num_cols]
+
+# imputed data (will show this is done below)
+env.data <- read.csv("data/metadata-imputed.csv", row.names = 1)
+```
+## Plot of samples
+
+```{r}
+library(oce)
+data(coastlineWorld)
+par(mar=c(1.5, 1.5, 0.5, 0.5))
+mapPlot(coastlineWorld, col="lightgrey")
+mapPoints(df.num$Longitude_E, df.num$Latitude_N, pch=19, col="red")
+```
+
+## Alpha diversity metrics
+
+```{r}
+# richness
+S.obs <- function( x = "" ){
+  rowSums( x > 0 ) * 1
+}
+# evenness
+Evar <- function(x){
+  x <- as.vector(x[x > 0])
+  1 - (2/pi)*atan(var(log(x)))
+}
+# ShannonH
+ShanH <- function(x = ""){
+  H = 0
+  for (n_i in x){
+    if(n_i > 0) {
+      p = n_i / sum(x)
+      H = H - p*log(p)
+    }
+  }
+  return(H)
+}
+# calculating
+vcs.S <- c()
+vcs.E <- c()
+vcs.H <- c()
+for (i in 1:90) {
+  vcs.S[i] = S.obs(vcs[i,])
+  vcs.E[i] = Evar(vcs[i,])
+  vcs.H[i] = ShanH(vcs[i,])
+}
+vcs.div <- cbind(vcs.S, vcs.E, vcs.H)
+```
+
+## Stacked barplots with different grouping strategies 
+
+
+```{r}
+#convert to relative abundance table
+vcs.rel <- vcs/rowSums(vcs)
+# top20 VCs
+top <- names(head(sort(colSums(vcs),decreasing = T),20))
+top <- as.vector(top)
+# recreate a table with the rest VCs classified into "Others"
+vcs.rel2 <- vcs.rel
+colnames(vcs.rel2)[!colnames(vcs.rel2)%in%top] <- "Others"
+others <- rowSums(cbind(vcs.rel2[colnames(vcs.rel2)=="Others"]))
+vcs.top <- cbind(vcs.rel2[colnames(vcs.rel2)!="Others"],others)
+vcs.top <- vcs.top[,order(colSums(vcs.top))] # ranking
+#load group data
+env.class.geo.div <- df
+vcs.top2 <- as.data.frame(cbind(vcs.top,env.class.geo.div$Layer,env.class.geo.div$Region))
+vcs.top2$sample <- rownames(vcs.top2)
+vcs.top20 <- melt(vcs.top2,ID="names")
+colnames(vcs.top20)[names(vcs.top20)=="variable"]<-"Taxa"
+vcs.top20$`env.class.geo.div$Layer` <- factor(vcs.top20$`env.class.geo.div$Layer`, levels = c("SUR","DCM","MIX","MES")) #set order
+# group by layer(zonation)
+vcs.top.layer <- aggregate(vcs.top2[,1:21], by = list(Layer = vcs.top2$`env.class.geo.div$Layer`),FUN = mean)
+vcs.top.layer$sample <- rownames(vcs.top.layer)
+vcs.group.layer <- melt(vcs.top.layer, ID="names")
+colnames(vcs.group.layer)[names(vcs.group.layer)=="variable"]<-"Taxa"
+vcs.group.layer$Layer <- factor(vcs.group.layer$Layer, levels = c("SUR","DCM","MIX","MES")) #set order
+# group by region
+vcs.top.region <- aggregate(vcs.top2[,1:21], by = list(Layer = vcs.top2$`env.class.geo.div$Region`),FUN = mean)
+vcs.top.region$sample <- rownames(vcs.top.region)
+vcs.group.region <- melt(vcs.top.region, ID="names")
+colnames(vcs.group.region)[names(vcs.group.region)=="variable"]<-"Taxa"
+```
+```{r}
+#stacked barplot for top 20 viral clusters
+colors<-c("grey50","darkolivegreen3","gold","darkseagreen","chartreuse4","darkorange","dodgerblue4","burlywood2","brown3","#984EA3","cyan3","#CC6600","darkgrey","3300CC","lightgrey","pink","yellow","white","000099","66CC66","darkgreen")
+ggplot(vcs.top20,aes(x = sample, y = value, fill = Taxa))+
+  geom_bar(position = "fill", stat = "identity", width = 1)+
+  theme_bw()+
+  scale_fill_manual(values=colors)+
+  facet_wrap(~env.class.geo.div$Layer,nrow = 4)+
+  labs(x = "Sites",y = "Relative Abundance", fill = "Viral clusters")+
+  theme(axis.text.x = element_text(size = 0, color = "transparent"),
+        legend.text = element_text(size = 7))+
+  guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5))
+```
+```{r}
+# group by water layer
+ggplot(vcs.group.layer,aes(x = Layer, y = value, fill = Taxa))+
+  geom_bar(position = "fill", stat = "identity")+
+  theme_bw()+
+  scale_fill_manual(values=colors)+
+  labs(x = "Zone",y = "Relative Abundance", fill = "Viral clusters")+
+  theme(axis.text.x = element_text(size = 9, color = "black"),
+        legend.text = element_text(size = 7))+
+  guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5))
+# group by region
+ggplot(vcs.group.region,aes(x = Layer, y = value, fill = Taxa))+
+  geom_bar(position = "fill", stat = "identity")+
+  theme_bw()+
+  scale_fill_manual(values=colors)+
+  labs(x = "Region",y = "Relative Abundance", fill = "Viral clusters")+
+  theme(axis.text.x = element_text(size = 9, color = "black"),
+        legend.text = element_text(size = 7))+
+  guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5))
+```
+
+## Seeking relationships with diversity and water depth
+```{r}
+# linear regression
+summary(lm(env.class.geo.div$ShannonH ~ env.class.geo.div$Depth))
+summary(lm(env.class.geo.div$Richness ~ env.class.geo.div$Depth))
+summary(lm(env.class.geo.div$Evenness ~ env.class.geo.div$Depth))
+
+HD <- ggplot(env.class.geo.div, aes(x = Depth, y = ShannonH))+
+  geom_point()+
+  geom_smooth(method = "lm", alpha = 0.2)
+SD <- ggplot(env.class.geo.div, aes(x = Depth, y = Richness))+
+  geom_point()+
+  geom_smooth(method = "lm", alpha = 0.2)
+ED <- ggplot(env.class.geo.div, aes(x = Depth, y = Evenness))+
+  geom_point()+
+  geom_smooth(method = "lm", alpha = 0.2)
+HD + SD + ED
+```
+
+## PCoA
+
+```{r}
+#pcoa with depth gradient
+bray.vcs <- vegdist(vcs, method = "bray")
+pcoa <- cmdscale(bray.vcs, k =3, eig = TRUE)
+pcoa_eig <- (pcoa$eig)[1:2]/sum(pcoa$eig)
+site.pcoa <- data.frame(pcoa$points)[1:2]
+site.pcoa <- cbind(site.pcoa, df$Depth)
+colnames(site.pcoa) <- c("PCoA1","PCoA2","Depth")
+
+ggplot(site.pcoa, aes(PCoA1, PCoA2))+
+  geom_point(aes(color = Depth), size = 3)+
+  scale_color_gradient(low = "blue", high = "red")+
+  labs(x=paste("PCoA1: ", round(100*pcoa_eig[1],2),"%"), y = paste("PCoA2: ", round(100*pcoa_eig[2],2),"%")) +
+   theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.length = unit(5,"pt"),)
+```
+
+## Imputation
+```{r}
+require(mice)
+require(VIM)
+df.num1 <- subset(df.num, ! rownames(df.num) %in% c("MSP114"))
+df.sparse <- subset(df.num1, select=-c(Richness,Evenness,ShannonH))
+
+mice_plot <- aggr(df.sparse, col=c('grey','white'),
+                    numbers=TRUE, sortVars=TRUE,
+                    labels=names(df.sparse), cex.axis=.7,
+                    gap=3, ylab=c("Missing data","Pattern"))
+```
+
+```{r results='hide'}
+df.sparse <- subset(df.sparse, select=-c(Nitrate))
+imputed_Data <- mice(df.sparse, m=1, maxit = 100, method = 'pmm')
+summary(imputed_Data)
+```
+
+```{r eval=FALSE}
+completeData <- complete(imputed_Data,1)
+# write.csv(completeData, file = "data/metadata-imputed.csv")
+```
+
+## dbRDA
+
+```{r}
+dbrda1 <- dbrda(bray.vcs ~ ., as.data.frame(env.data))
+dbrda0 <- dbrda(bray.vcs ~ 1, as.data.frame(env.data))
+
+dbrda <- ordiR2step(dbrda0, scope=formula(dbrda1), perm.max=200)
+
+permutest(dbrda, permutations=999)
+envfit(dbrda, env.data[,c(4,6,7)], perm=999)
+
+dbrda.explainvar1 <- round(dbrda$CCA$eig[1]/sum(c(dbrda$CCA$eig, dbrda$CA$eig)),3) * 100
+dbrda.explainvar2 <- round(dbrda$CCA$eig[2]/sum(c(dbrda$CCA$eig, dbrda$CA$eig)),3) * 100
+
+
+vals <- scores(dbrda, display="wa")
+par(mar=c(5,4,2,4) + 0.1)
+plot(vals, 
+     xlim=c(-1, 2), ylim=c(-2.5, 2.2),
+     xlab=paste0("dbRDA 1 (", dbrda.explainvar1, "%)"),
+     ylab=paste0("dbRDA 2 (", dbrda.explainvar2, "%)"),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=F
+)
+axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+abline(h=0, v=0, lty=3)
+box(lwd=2)
+
+points(vals, pch=19, cex=2, bg="grey", col="grey")
+
+vectors <- scores(dbrda, display = "bp")
+arrows(0, 0, vectors[,1], vectors[,2], lwd=2, lty=1, length = 0.2, col = "red")
+text(vectors[,1], vectors[,2], pos=4, labels=row.names(vectors))
+axis(side=3, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2, 
+     at = pretty(range(vectors[,1]))*2, labels = pretty(range(vectors[,1])))
+axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2, 
+     at = pretty(range(vectors[,2]))*2, labels = pretty(range(vectors[,2])))
+```
+
+## Remove deepest samples
+
+```{r}
+vcs.shal <- subset(vcs, df$Layer!="MES")
+env.shal <- subset(env.data, df$Layer!="MES")
+layers <- subset(df, Layer!="MES", select="Layer")
+
+vcs.shal.rel <- vcs.shal/rowSums(vcs.shal)
+vcs.shal.db <- vegdist(vcs.shal.rel, method="bray")
+```
+
+## Redo ordination without `MES`
+
+```{r}
+vcs.shal.pcoa <- cmdscale(vcs.shal.db, eig=T, k=3)
+
+dbrda1.shal <- dbrda(vcs.shal.db ~ ., as.data.frame(env.shal))
+dbrda0.shal <- dbrda(vcs.shal.db ~ 1, as.data.frame(env.shal))
+
+dbrda.shal <- ordiR2step(dbrda0.shal, scope=formula(dbrda1.shal), perm.max=200)
+
+permutest(dbrda.shal, permutations=999)
+envfit(dbrda.shal, env.shal, perm=999)
+
+dbrda.explainvar1.shal <- round(dbrda.shal$CCA$eig[1]/sum(c(dbrda.shal$CCA$eig, dbrda.shal$CA$eig)),3) * 100
+dbrda.explainvar2.shal <- round(dbrda.shal$CCA$eig[2]/sum(c(dbrda.shal$CCA$eig, dbrda.shal$CA$eig)),3) * 100
+
+
+vals.shal <- scores(dbrda.shal, display="wa")
+par(mar=c(5,4,2,4) + 0.1)
+plot(vals.shal, 
+     xlim=c(-1.75, 1.75), ylim=c(-2.2, 2.2),
+     xlab=paste0("dbRDA 1 (", dbrda.explainvar1.shal, "%)"),
+     ylab=paste0("dbRDA 2 (", dbrda.explainvar2.shal, "%)"),
+     pch=16, cex=2.0, type="n", cex.lab=1.5, cex.axis=1.2, axes=F
+)
+axis(side=1, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+axis(side=2, labels=T, lwd.ticks=2, cex.axis=1.2, las=1)
+abline(h=0, v=0, lty=3)
+box(lwd=2)
+
+points(vals.shal, pch=19, cex=2, bg="grey", col="grey")
+
+vectors.shal <- scores(dbrda.shal, display = "bp")
+arrows(0, 0, vectors.shal[,1], vectors.shal[,2], lwd=2, lty=1, length = 0.2, col = "red")
+text(vectors.shal[,1], vectors.shal[,2], pos=4, labels=row.names(vectors.shal))
+axis(side=3, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2, 
+     at = pretty(range(vectors.shal[,1]))*2, labels = pretty(range(vectors.shal[,1])))
+axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2, 
+     at = pretty(range(vectors.shal[,2]))*2, labels = pretty(range(vectors.shal[,2])))
+```
+
