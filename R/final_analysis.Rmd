@@ -20,6 +20,7 @@ library("corrplot")
 library("dplyr")
 library("reshape2")
 library("patchwork")
+library("ggpmisc")
 
 
 setwd("~/GitHub/QBVirus/")
@@ -129,18 +130,30 @@ vcs.group.region <- melt(vcs.top.region, ID="names")
 colnames(vcs.group.region)[names(vcs.group.region)=="variable"]<-"Taxa"
 ```
 ```{r}
-#stacked barplot for top 20 viral clusters
+# plotting stacked barplot for top 20 viral clusters
 colors<-c("grey50","darkolivegreen3","gold","darkseagreen","chartreuse4","darkorange","dodgerblue4","burlywood2","brown3","#984EA3","cyan3","#CC6600","darkgrey","3300CC","lightgrey","pink","yellow","white","000099","66CC66","darkgreen")
+# water depth
 ggplot(vcs.top20,aes(x = sample, y = value, fill = Taxa))+
   geom_bar(position = "fill", stat = "identity", width = 1)+
   theme_bw()+
   scale_fill_manual(values=colors)+
-  facet_wrap(~env.class.geo.div$Layer,nrow = 4)+
+  facet_wrap(~`env.class.geo.div$Layer`,nrow = 4)+
+  labs(x = "Sites",y = "Relative Abundance", fill = "Viral clusters")+
+  theme(axis.text.x = element_text(size = 0, color = "transparent"),
+        legend.text = element_text(size = 7))+
+  guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5))
+# region
+ggplot(vcs.top20,aes(x = sample, y = value, fill = Taxa))+
+  geom_bar(position = "fill", stat = "identity", width = 1)+
+  theme_bw()+
+  scale_fill_manual(values=colors)+
+  facet_wrap(~`env.class.geo.div$Region`,nrow = 7)+
   labs(x = "Sites",y = "Relative Abundance", fill = "Viral clusters")+
   theme(axis.text.x = element_text(size = 0, color = "transparent"),
         legend.text = element_text(size = 7))+
   guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5))
 ```
+
 ```{r}
 # group by water layer
 ggplot(vcs.group.layer,aes(x = Layer, y = value, fill = Taxa))+
@@ -171,13 +184,16 @@ summary(lm(env.class.geo.div$Evenness ~ env.class.geo.div$Depth))
 
 HD <- ggplot(env.class.geo.div, aes(x = Depth, y = ShannonH))+
   geom_point()+
-  geom_smooth(method = "lm", alpha = 0.2)
+  geom_smooth(method = "lm", alpha = 0.2)+
+  stat_poly_eq(formula = y ~ x, aes(label = paste("~~~~~~~~~~~~~~~",..rr.label..,..p.value.label.., sep = "~~~")), parse = TRUE)
 SD <- ggplot(env.class.geo.div, aes(x = Depth, y = Richness))+
   geom_point()+
-  geom_smooth(method = "lm", alpha = 0.2)
+  geom_smooth(method = "lm", alpha = 0.2)+
+  stat_poly_eq(formula = y ~ x, aes(label = paste("~~~~~~~~~~~~~~~",..rr.label..,..p.value.label.., sep = "~~~")), parse = TRUE)
 ED <- ggplot(env.class.geo.div, aes(x = Depth, y = Evenness))+
   geom_point()+
-  geom_smooth(method = "lm", alpha = 0.2)
+  geom_smooth(method = "lm", alpha = 0.2)+
+  stat_poly_eq(formula = y ~ x, aes(label = paste("~~~~~~~~~~~~~~~",..rr.label..,..p.value.label.., sep = "~~~")), parse = TRUE)
 HD + SD + ED
 ```
 
@@ -318,3 +334,132 @@ axis(side=4, lwd.ticks = 2, cex.axis=1.2, las=1, col="red", lwd=2.2,
      at = pretty(range(vectors.shal[,2]))*2, labels = pretty(range(vectors.shal[,2])))
 ```
 
+## Distance decay
+
+```{r}
+library(geosphere)
+library(ggplot2)
+library(ggpmisc)
+
+# geographical distance
+vcs.geo <- cbind(df.num$Longitude_E, df.num$Latitude_N)
+dist.vcs <- as.dist(distm(vcs.geo, fun = distHaversine))
+dist_vcs<-as.data.frame(as.vector(dist.vcs))/1000 #transformed to kilometer
+colnames(dist_vcs) <- "dist"
+# depth distance
+dep.m <- matrix(nrow = 90, ncol = 90)
+for (i in 1:90){
+  for (j in 1:90){
+    dep.m[i,j] = abs(df$Depth[i]-df$Depth[j])
+  }
+}
+depth_dis <- as.data.frame(as.vector(as.dist(dep.m)))
+colnames(depth_dis) <- "depth"
+
+# bray-curtis dissimilarity
+bray.vcs <- vegdist(vcs, method = "bray")
+bray_vcs <- as.data.frame(as.vector(bray.vcs))
+colnames(bray_vcs)<- "bray"
+data.dist <- data.frame(dist_vcs,depth_dis,bray_vcs)
+data.dist$bray <- (1-data.dist$bray)*100 #convert to similarity percentage
+summary(lm(data.dist$bray ~ data.dist$dist))
+summary(lm(data.dist$bray ~ data.dist$depth))
+
+#plot
+DDR.geo <- ggplot(data.dist, aes(x = dist, y = bray))+
+  geom_point(alpha = 0.2)+
+  geom_smooth(method = "lm", alpha = 0.3)+
+  labs(x = "geographic distance (Km)", y = "community similarity(%)")+
+  stat_poly_eq(formula = y ~ x, aes(label = paste("~~~~~~~~",..eq.label.., ..rr.label..,..p.value.label.., sep = "~~~")), parse = TRUE)
+DDR.depth <- ggplot(data.dist, aes(x = depth, y = bray))+
+  geom_point(alpha = 0.2)+
+  geom_smooth(method = "lm", alpha = 0.3)+
+  labs(x = "depth distance (m)", y = "community similarity(%)")+
+  stat_poly_eq(formula = y ~ x, aes(label = paste("~~~~~~~~",..eq.label.., ..rr.label..,..p.value.label.., sep = "~~~")), parse = TRUE)
+DDR.geo + DDR.depth
+```
+
+## Variation partitioning (two-factor)
+
+```{r}
+# vcs table without site #MSP114
+vcs.db <- vegdist(vcs, method = "bray", upper = TRUE, diag = TRUE)
+# env with depth
+env <- as.matrix(env.data[,3:8])
+#perform dbRDA
+vcs.dbrda <- dbrda(vcs.db ~ ., as.data.frame(env))
+ordiplot(vcs.dbrda)
+psych::corr.test(env)
+# Environmental variables are significantly correlated.
+vcs.dbrda.mod0 <- dbrda(vcs.db ~ 1, as.data.frame(env))
+ordiplot(vcs.dbrda.mod0)
+vcs.dbrda.mod1 <- dbrda(vcs.db ~ ., as.data.frame(env))
+vcs.dbrda <- ordiR2step(vcs.dbrda.mod0, vcs.dbrda.mod1, perm.max = 200)
+vcs.dbrda$call
+vcs.dbrda$anova
+ordiplot(vcs.dbrda)
+env.mod <- model.matrix(~ Depth + Temperature + Oxygen + Chlorophyll_a, as.data.frame(env))[,-1]
+```
+
+```{r}
+# spatial model with PCNM
+rs.vcs <- rowSums(vcs)/sum(vcs)
+vcs.dis <-cbind(env.data$Latitude_N, env.data$Longitude_E)
+vcs.pcnmw <- pcnm(dist(vcs.dis), w = rs.vcs, dist.ret = T)
+vcs.pcnmw$values>0
+#perform model selection for spatial matrix
+vcs.space <-as.data.frame(scores(vcs.pcnmw))
+vcs.pcnm.mod0 <- dbrda(vcs.db ~ 1, vcs.space)
+vcs.pcnm.mod1 <- dbrda(vcs.db ~ ., vcs.space)
+step.pcnm <- ordiR2step(vcs.pcnm.mod0, vcs.pcnm.mod1, perm.max = 200)
+plot(step.pcnm)
+```
+
+```{r}
+step.pcnm$anova
+space.mod <- model.matrix(~ PCNM1 + PCNM2 + PCNM3, vcs.space)[,-1]
+# First conduct constrained ordinations
+vcs.total.env <- dbrda(vcs.db ~ env.mod)
+vcs.total.space <- dbrda(vcs.db ~ space.mod)
+# Next construct partial constrained ordinations
+vcs.env.cond.space <- dbrda(vcs.db ~ env.mod + Condition(space.mod))
+vcs.space.cond.env <- dbrda(vcs.db ~ space.mod + Condition(env.mod))
+# Next test for significance of the dbRDA fractions.
+permutest(vcs.env.cond.space, permutations = 999)
+permutest(vcs.space.cond.env, permutations = 999)
+permutest(vcs.total.env, permutations = 999)
+permutest(vcs.total.space, permutations = 999)
+#Using the built-in varpart() function
+vcs.varpart <- varpart(vcs.db, env.mod, space.mod, transfo = "hel")
+vcs.varpart
+par(mar = c(2,2,2,2))
+plot(vcs.varpart, bg = c("orange", "blue"))
+text(1, 0.25, "GeoSpace")
+text(0, 0.25, "Env")
+```
+
+## Variation partitioning (Three-factor)
+```{r}
+# env without depth
+envpure <- as.matrix(env.data[,4:8])
+#perform dbRDA
+vcs.dbrda.p <- dbrda(vcs.db ~ ., as.data.frame(envpure))
+ordiplot(vcs.dbrda.p)
+print(psych::corr.test(envpure),short = FALSE)
+# Temperature, Phosphate, Nitrite and Oxygen are significantly correlated.
+vcs.dbrda.p.mod0 <- dbrda(vcs.db ~ 1, as.data.frame(envpure))
+ordiplot(vcs.dbrda.p.mod0)
+vcs.dbrda.p.mod1 <- dbrda(vcs.db ~ ., as.data.frame(envpure))
+vcs.dbrda.p <- ordiR2step(vcs.dbrda.p.mod0, vcs.dbrda.p.mod1, perm.max = 200)
+vcs.dbrda.p$call
+vcs.dbrda.p$anova
+ordiplot(vcs.dbrda.p)
+envpure.mod <- model.matrix(~ Temperature + Oxygen + Chlorophyll_a, as.data.frame(envpure))[,-1]
+vcs.varpart.3 <- varpart(vcs.db, envpure.mod, space.mod, env.data[3], transfo = "hel")
+vcs.varpart.3
+par(mar = c(2,2,2,2))
+plot(vcs.varpart.3, bg = c("orange", "blue", "green"))
+text(0.5, -1.1, "Depth")
+text(1, 0.25, "GeoSpace")
+text(0, 0.25, "Env")
+```
