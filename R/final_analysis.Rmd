@@ -52,6 +52,13 @@ mapPlot(coastlineWorld, col="lightgrey")
 mapPoints(df.num$Longitude_E, df.num$Latitude_N, pch=19, col="red")
 ```
 
+## Environmental info
+
+```{r}
+cor1 <- cor(df.num[,1:9], use="complete.obs")
+corrplot(cor1, method = "ellipse")
+```
+
 ## Alpha diversity metrics
 
 ```{r}
